@@ -1,0 +1,319 @@
+---
+title: "COVID's Impact on Mental Health Care"
+author: Varsha Ambuga
+date: June 21, 2023
+output:
+  html_document:
+    fig_width: 8
+    number_sections: true
+    code_folding: hide
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=4,
+                      echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+# Objective
+
+The National Center for Health Statistics in collaboration with the US Census Bureau
+conducted a 20-minute online survey called the Household Pulse Survey to gather
+information on the social and economic impact of the coronavirus pandemic in the US.
+This chosen dataset is the statistics of the responses to questions in the survey
+on the mental health care - received and unmet. More details about the survey are available here:
+https://www.cdc.gov/nchs/covid19/pulse/mental-health-care.htm.
+
+# Survey Dataset 
+
+The dataset can be downloaded from the CDC website at https://data.cdc.gov/resource/yni7-er2q.csv?$limit=50000. The URL is appended with "limit=50000" because the SODA API used by CDC to provide access to the dataset imposes a default limit of 1000 rows for consumption. It can be overridden by explicitly setting the limit in the URL. All the plots are driven by the numeric column, Value which gives percentage of survey respondents that chose a certain categorical data from columns - Indicators, Group, State, Subgroup and Time Period Label.
+
+# Single variable findings
+
+In this section, we study variation of the values grouped by specific categorical data chosen as per the scenario being studied. The chosen variable is highlighted in bold.
+
+## Percentage by state
+
+Variable: **State**
+
+The dataset is filtered by Indicator and Group to show the state-wise average percentage of respondents that took prescription medication. Below is the barplot of percentage of survey respondents by state that took prescription medication for mental health with the values ranging from 12 (Hawaii) to 28 (West Virginia).
+```{r echo=TRUE}
+library(sampling)
+library(plotly)
+library(tidyverse)
+library(RColorBrewer)
+data <- read.csv("https://data.cdc.gov/resource/yni7-er2q.csv?$limit=50000")
+attach(data)
+df <- data |> 
+  filter(indicator=="Took Prescription Medication for Mental Health, Last 4 Weeks",
+                    group == "By State") |>
+  group_by(state) |>
+  summarise(mn_val = round(mean(value),digits = 2)) |> 
+  arrange(mn_val)
+df$state <- factor(df$state,levels=df[["state"]])
+a <- plot_ly(df[order(df$mn_val, decreasing = TRUE),]
+             ,x=~mn_val,y=~state,type='bar',
+             orientation = 'h', color = ~state, colors = "Set2", legend = FALSE) |>
+    layout(title = "Consumed prescription medication for mental health",
+      xaxis = list(title = "Respondent percentage"),
+           yaxis = list(title = "States",tickfont = list(size=7)),showlegend = FALSE)
+a 
+```
+
+## National average of unmet care
+
+Variable: **Value** (group = National Estimate)
+
+The dataset is filtered by Indicator and Group to show the National average percentage of respondents with unmet care. The boxplot indicates that the national average over the survey period remained within the narrow range of 9.2-12.4. 
+```{r echo=TRUE}
+df <- data |> filter(indicator == "Needed Counseling or Therapy But Did Not Get It, Last 4 Weeks",
+                     group == "National Estimate",
+                     is.na(value) == FALSE) |>
+              select(value)
+b <- plot_ly(x = df$value, type = "box", boxpoints = "all", jitter = 0.3,
+             name = "National Estimate", color = df$value, colors = c("red")) |>
+    layout(title = "Percentage respondents that did not receive mental health care")
+b
+```
+
+## Unmet care by ethnicity
+
+Variable: **Subgroup** (group = Ethnicity)
+
+The national averages of unmet care is zoomed in with the Ethnicity lens by stratifying the previous plot by the variable, Ethnicity. The values indicate the respondent percentages that sought mental health care but did not receive it, categorized by ethnicity.
+```{r echo=TRUE}
+df <- data |> filter(indicator == "Needed Counseling or Therapy But Did Not Get It, Last 4 Weeks",
+                     group == "By Race/Hispanic ethnicity",
+                     is.na(value) == FALSE) |>
+  group_by(subgroup) |> summarise(mn_val = round(mean(value),digits = 2))
+c <- plot_ly(df,labels = ~subgroup, values = ~mn_val, type = "pie") 
+c
+```
+
+# Two variable findings
+
+In this section, we study variation of the values grouped by two specific categorical data chosen as per the scenario being studied. The chosen variables is highlighted in bold.
+
+## Correlation of Age and Sex in mental health care
+
+Variables: **Subgroup** (group = Age) and **Subgroup** (group = Sex)
+
+The survey gives us data on population that received therapy categorized by age and sex individually. The dataset is filtered by Indicator, Group (Age and Sex) to show the average percentage of respondents that received therapy. Below is an attempt to observe any correlation between the two variables among population that received therapy. It is evident from the plot that more women than men receive therapy and more people in the age group 18-29 receive therapy than older population.
+```{r echo=TRUE}
+df <- data[indicator=="Received Counseling or Therapy, Last 4 Weeks"
+            & group=="By Age"
+            & is.na(value)==FALSE,c("subgroup","time_period_label","value")]
+
+df_m <- data[indicator=="Received Counseling or Therapy, Last 4 Weeks"
+           & group=="By Sex" & subgroup=="Male"
+           & is.na(value)==FALSE,c("time_period_label","value")]
+colnames(df_m) <- c("time_period_label","value_male")
+
+#merge age and male value dataframes by time period label 
+df_dfm <- merge(df,df_m, by.x = "time_period_label",by.y = "time_period_label")
+
+df_f <- data[indicator=="Received Counseling or Therapy, Last 4 Weeks"
+             & group=="By Sex" & subgroup=="Female"
+             & is.na(value)==FALSE,c("time_period_label","value")]
+colnames(df_f) <- c("time_period_label","value_female")
+
+#this table has values of age, male and female
+df_dfm_dff <- merge(df_dfm,df_f, by.x = "time_period_label",by.y = "time_period_label")
+
+#out of 100 people across ages, 7.5 were male (Apr 14 - Apr 26, 2021)
+#17.5% of this number were in age group 18-29 = 17.5/100*7.5 = 1.3
+#compute new values age_male and age_female
+df_dfm_dff$value_age_male = df_dfm_dff$value/100*df_dfm_dff$value_male
+df_dfm_dff$value_age_female = df_dfm_dff$value/100*df_dfm_dff$value_female
+df <- df_dfm_dff[,c("subgroup","value_age_male","value_age_female")]
+df <- aggregate(cbind(df$value_age_male,df$value_age_female)~df$subgroup,df,FUN=mean)
+e <- plot_ly(df, x=~`df$subgroup`, y = ~V1, type = "bar", name = "Male")|>
+  add_trace(y = ~V2, name = "Female") |>
+  layout(barmode = "group",
+         xaxis = list(title="Age groups"),
+         yaxis = list(title="Respondent percentage"),
+         title = "Mental health care by age and sex")
+e
+```
+
+## Impact of education on mental health care
+
+Variables: **Indicator** and **Subgroup** (group = Education)
+
+The mental health indicators in the survey are: Took medication, Received therapy, Received medication and/or therapy, Needed care but received neither. Also, the survey carries data on the education of the participants. Below is an attempt to observe any correlation between the educational qualification and the mental health care indicators. Even though there is no significant correlation between the two, it can be observed that population with at least some college degree is the largest category to take prescription medication, receive counseling or both.
+```{r echo=TRUE}
+df <- data |> filter(group=="By Education",
+                     is.na(value)==FALSE) |>
+  group_by(indicator,subgroup) |>
+  summarise(mn_val = round(mean(value),digits = 2))
+df[df=="Took Prescription Medication for Mental Health, Last 4 Weeks"] <-
+  "Took Medication"
+df[df=="Received Counseling or Therapy, Last 4 Weeks"] <-
+  "Took Therapy"  
+df[df=="Took Prescription Medication for Mental Health And/Or Received Counseling or Therapy, Last 4 Weeks"] <- "Medication and/or Therapy"  
+df[df=="Needed Counseling or Therapy But Did Not Get It, Last 4 Weeks"] <-
+  "No access to care"  
+
+f <-df |> plot_ly(x=~indicator, y = ~mn_val,color = ~subgroup, type = "bar") |>
+  layout(xaxis = list(title="Mental health care" ),
+         yaxis = list(title="Respondent percentage"),
+         title = "Education on Mental health care indicators")  
+f
+```
+
+## Disability status versus mental health care
+
+Variables: **Indicator** and **Subgroup** (group = Disability Status)
+
+The survey gives us data on the disability status of the participants. Below is an attempt to observe any correlation between the disability status and the mental health care indicators. Among people who had access to mental health care, those with disability tend to use it more than those without.
+
+```{r echo=TRUE}
+df <- data %>% filter(group=="By Disability status" 
+                                     & is.na(value)==FALSE) %>%
+                    group_by(indicator,subgroup) %>%
+                    summarise(mn_val =  mean(value))
+df[df=="Took Prescription Medication for Mental Health, Last 4 Weeks"] <-
+  "Took Medication"
+df[df=="Received Counseling or Therapy, Last 4 Weeks"] <-
+  "Took Therapy"  
+df[df=="Took Prescription Medication for Mental Health And/Or Received Counseling or Therapy, Last 4 Weeks"] <- "Medication and/or Therapy"  
+df[df=="Needed Counseling or Therapy But Did Not Get It, Last 4 Weeks"] <-
+  "No access to care" 
+g <-df |> plot_ly(x=~indicator, y = ~mn_val,color = ~subgroup, type = "bar") |>
+  layout(xaxis = list(title="Mental health care" ),
+         yaxis = list(title="Respondent percentage"),
+         title = "Mental health care in disabled and non-disabled")  
+g
+```
+
+# Distribution
+
+## Histogram and Density curve
+
+Variable: **Value** (subgroup = Hispanic or Latino)
+
+The Hispanic Respondent percentages that took prescription medication and/or received therapy over time is plotted for histogram and density. The density appears to be bell-shaped which implies that it follows the normal distribution.
+
+```{r echo = TRUE}
+val_distro <- data[group=="By Race/Hispanic ethnicity"
+           & indicator=="Took Prescription Medication for Mental Health And/Or Received Counseling or Therapy, Last 4 Weeks"
+           & subgroup == "Hispanic or Latino"
+           & is.na(value)==FALSE,c("subgroup","value")]
+x <- val_distro$value
+fit <- density(x)
+h <- plot_ly(x = x, name = "Histogram", marker = list(color = c("lightgreen"))) |>
+  add_histogram() |>
+  add_lines(x = fit$x, y = fit$y, yaxis = "y2", name = "Density", marker = list(color = c("orange"))) |>
+  layout(yaxis2 = list(overlaying = "y", side = "right"),
+         title = "Hispanic respondents that took prescription medication")
+cat(paste("Mean =",round(mean(x),digits = 2),", Standard Deviation =",round(sd(x),digits = 2)))
+h
+```
+
+# Sampling
+
+## Central limit theorem
+
+Variable: **Value** (indicator = Did not receive care, group = by State)
+
+The data used for sampling is the percentages of respondents that did not receive care, by state. As the sample size increases, while the mean of samples remain approximately the same as the original data, the standard deviation gets narrower which substantiates the Central Limit Theorem.
+
+Below are the mean and SD values of various sample sizes.
+
+```{r echo = TRUE}
+a <- data |> filter(group=="By State",
+                    indicator=="Needed Counseling or Therapy But Did Not Get It, Last 4 Weeks",
+                    is.na(value)==FALSE) |> select(value)
+mn_sd <- data.frame(Sample.size= nrow(a), mean=mean(a$value), sd = sd(a$value))
+
+h <- plot_ly(alpha = 0.6)
+h<- h|> add_histogram(x=a$value, name = "original data")
+
+samples <- 200
+sample.size <- 10
+
+xbar <- numeric(samples)
+set.seed(8724)
+for (i in 1:samples) {
+  xbar[i] <- mean(sample(a$value,sample.size,replace = FALSE))
+}
+h <- h |> add_histogram(x = xbar, name = "sample size 10")
+mn_sd <- rbind(mn_sd,list("10",round(mean(xbar), digits = 2),round(sd(xbar),digits = 2)))
+
+sample.size <- 40
+
+xbar <- numeric(samples)
+set.seed(8724)
+for (i in 1:samples) {
+  xbar[i] <- mean(sample(a$value,sample.size,replace = FALSE))
+}
+h <- h |> add_histogram(x = xbar, name = "sample size 40")
+mn_sd <- rbind(mn_sd,list("40",round(mean(xbar), digits = 2),round(sd(xbar),digits = 2)))
+
+sample.size <- 60
+xbar <- numeric(samples)
+set.seed(8724)
+for (i in 1:samples) {
+  xbar[i] <- mean(sample(a$value,sample.size,replace = FALSE))
+}
+h <- h |> add_histogram(x = xbar, name = "sample size 60")
+h <- h |> layout(barmode = "overlay", title = "Comparison of sample data histograms")
+mn_sd <- rbind(mn_sd,list("60",round(mean(xbar), digits = 2),round(sd(xbar),digits = 2)))
+library(knitr)
+kable(mn_sd)
+h
+```
+
+## Various sampling methods
+
+Variable: **Value** (indicator = Took prescription medication, group = by State)
+
+The data used for sampling is the percentages of respondents that took prescription medication, by state. Below are the histograms of the original data and the three commonly used sampling methods listed in the legend. It is evident from each method that the samples are a close representation of the original data with the mean being close to that of the original dataset, and the frequency histograms resembling the shape of the original data.
+```{r echo = TRUE}
+a <- data |> filter(group=="By State",
+                    indicator=="Took Prescription Medication for Mental Health, Last 4 Weeks",
+                    is.na(value)==FALSE) |> select(subgroup,value)
+j <- plot_ly(x = a$value, name = "Entire dataset",type = "histogram") |>
+  add_lines(x = mean(a$value),y=range(0,100),line = list(dash="dot"), name = "Mean - Entire dataset")
+
+#simple random sampling with replacement
+sample.size <- 70
+s <- srswr(sample.size,nrow(a))
+rows <- (1:nrow(a))[s!=0]
+rows <- rep(rows,s[s!=0])
+sample.1 <- a[rows,]
+k <- plot_ly(x = sample.1$value, type = "histogram",name = "Simple Random Sampling with Replacement", marker = list(color = 'lightblue')) |>
+  add_lines(x = mean(sample.1$value),y=range(0,max(hist(sample.1$value,plot = FALSE)$counts)),line = list(dash="dot"), name = "Mean - SRSWR")
+
+#systemic sampling - unequal probabilities
+pik <- inclusionprobabilities(a$value,sample.size)
+s<- UPsystematic(pik)
+sample.2 <- a[s!=0,]
+l <- plot_ly(x = sample.2$value, type = "histogram",name = "Systemic sampling with unequal probabilities", marker = list(color = 'yellow'))  |>
+  add_lines(x = mean(sample.2$value),y=range(0,20),line = list(dash="dot"), name = "Mean - Systemic")
+
+#stratified sampling
+s3 <- strata(a, stratanames = c("subgroup"), size = rep(1,length(unique(a$subgroup))),
+             method = "srswor")
+sample.3 <- getdata(a,s3)
+m <- plot_ly(x = sample.3$value, type = "histogram",name = "Stratified Sampling",
+             marker = list(color = 'green'))  |>
+  add_lines(x = mean(sample.3$value),y=range(0,max(hist(sample.3$value,plot = FALSE)$counts)),line = list(dash="dot"), name = "Mean - Statified")
+subplot(j,k,l,m,nrows = 2)
+```
+
+# Conclusions
+
+Some insights gathered with the analysis of the responses to the survey when extrapolated to the entire population:
+
+- People in West Virginia took prescription medication for mental health more than in any other state.
+- The monthly national average of population percentage that needed counseling but did not get during the survey period is 11.25%.
+- When compared to other ethnicity, people belonging to Asian ethnic group are most likely to get mental health care when needed, followed by white population.
+- Across all age groups, more women than men tend to receive mental health counseling. Among both males and females, the youth (18-29 years) is the largest age group to obtain counseling. 
+- People with some college degree or higher tend to take better care of their mental health via medication and/or Therapy.
+- Disabled population has the need for mental health care more than the non-disabled. They also tend to have poorer access to the care when needed than the non-disabled category.                                                                          
+
+Insights like these can map the intent of the survey to tangible output, thereby enabling us to demarcate areas where goals are met (or exceeded) from those that need improvement. For instance, assessing why disabled populated had poorer access to mental health care than non-disabled could guide us to take necessary remediation to improve accessibility of mental health care to them. Another example, knowing that West Virginia has the highest population that takes prescription medication in the country could give us as opportunity to learn from the state's policies that has created an awareness on mental health that is worthy of emulation.                                                                                                                                                                                          
